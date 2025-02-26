@@ -31,13 +31,36 @@ def save_visited(file_path, visited):
             f.write(url + "\n")
 
 
-def scrape_website(base_url, max_pages=100, visited_file="input/visited_urls.txt"):
+def load_pending(file_path):
+    """Load pending URLs from a file into a deque."""
+    pending = deque()
+    if os.path.exists(file_path):
+        with open(file_path, 'r', encoding="utf-8") as f:
+            for line in f:
+                url = line.strip()
+                if url:
+                    pending.append(url)
+    return pending
+
+
+def save_pending(file_path, pending):
+    """Save pending URLs to a file (one URL per line)."""
+    with open(file_path, 'w', encoding="utf-8") as f:
+        for url in pending:
+            f.write(url + "\n")
+
+
+def scrape_website(base_url, max_pages=100, visited_file="input/visited_urls.txt",
+                   pending_file="input/pending_urls.txt"):
     # Load previously visited URLs.
     visited = load_visited(visited_file)
-    # A deque for URLs to visit, initializing with base_url if not already visited.
-    to_visit = deque([])
-    if base_url not in visited:
+    # Load pending URLs from a file.
+    to_visit = load_pending(pending_file)
+
+    # If base_url is not visited and not in the pending list, add it.
+    if base_url not in visited and base_url not in to_visit:
         to_visit.append(base_url)
+
     # List to store output data (scraped results).
     data = []
     # Counter for the number of scraped pages.
@@ -69,10 +92,11 @@ def scrape_website(base_url, max_pages=100, visited_file="input/visited_urls.txt
             # Queue the internal links.
             for link in soup.find_all('a'):
                 href = link.get('href')
-                if href is None:
+                if not href:
                     continue
                 full_url = urllib.parse.urljoin(url, href)
-                if full_url.startswith(base_url) and full_url not in visited:
+                # Check if the link belongs to the same website and is not yet visited or in the pending list.
+                if full_url.startswith(base_url) and full_url not in visited and full_url not in to_visit:
                     to_visit.append(full_url)
 
         except Exception as e:
@@ -81,6 +105,8 @@ def scrape_website(base_url, max_pages=100, visited_file="input/visited_urls.txt
 
     # Save the updated visited URLs.
     save_visited(visited_file, visited)
+    # Save the remaining pending URLs to the pending file.
+    save_pending(pending_file, to_visit)
     return data
 
 
@@ -90,12 +116,14 @@ if __name__ == "__main__":
 
     # Website to scrape.
     base_url = "http://uni-bamberg.de/"
-    # Set the maximum number of pages to scrape.
+    # Set the maximum number of pages to scrape during this run.
     max_pages = 100
-    # File to store visited URLs, stored in the input folder.
+    # File to store visited URLs.
     visited_file = "input/visited_urls.txt"
+    # File to store pending URLs.
+    pending_file = "input/pending_urls.txt"
 
-    scraped_data = scrape_website(base_url, max_pages, visited_file)
+    scraped_data = scrape_website(base_url, max_pages, visited_file, pending_file)
 
     # Create a timestamp for the output file name.
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
