@@ -63,22 +63,28 @@ def flush_data(data, batch_index):
     return output_filename
 
 
-def scrape_website(base_url, max_pages=100, visited_file="input/visited_urls.txt",
-                   pending_file="input/pending_urls.txt"):
-    # Load previously visited URLs.
+def scrape_website(base_url, max_pages=0, visited_file="input/visited_urls.txt", pending_file="input/pending_urls.txt"):
+    """
+    Scrape the website starting at base_url.
+
+    If max_pages is set to 0, the scraper runs until no more pending links remain.
+    Otherwise, it stops after scraping max_pages pages.
+    """
+    # Load previously visited URLs and pending URLs.
     visited = load_visited(visited_file)
-    # Load pending URLs from a file.
     to_visit = load_pending(pending_file)
 
     # If base_url is not visited and not in the pending list, add it.
     if base_url not in visited and base_url not in to_visit:
         to_visit.append(base_url)
 
-    data = []  # List to store output data (scraped results)
-    batch_index = 1  # Batch counter for JSON flushing
-    count = 0  # Counter for the number of scraped pages
+    data = []  # List to store the scraped data.
+    batch_index = 1  # Batch counter for JSON flushing.
+    count = 0  # Counter for the number of scraped pages.
 
-    while to_visit and count < max_pages:
+    # Continue scraping while there are URLs to visit and max_pages condition holds.
+    # If max_pages is 0, it will ignore the count check.
+    while to_visit and (max_pages == 0 or count < max_pages):
         url = to_visit.popleft()
         if url in visited:
             continue
@@ -96,10 +102,6 @@ def scrape_website(base_url, max_pages=100, visited_file="input/visited_urls.txt
             data.append({"url": url, "text": text})
             count += 1
 
-            # If we have reached the max_pages limit, break out.
-            if count >= max_pages:
-                break
-
             # Queue the internal links.
             for link in soup.find_all("a"):
                 href = link.get("href")
@@ -113,7 +115,7 @@ def scrape_website(base_url, max_pages=100, visited_file="input/visited_urls.txt
             current_size = len(json.dumps(data, ensure_ascii=False).encode("utf-8"))
             if current_size >= ONE_GB:
                 flush_data(data, batch_index)
-                data = []  # Clear data after flushing to file.
+                data = []  # Clear data after flushing.
                 batch_index += 1
 
         except Exception as e:
@@ -124,9 +126,8 @@ def scrape_website(base_url, max_pages=100, visited_file="input/visited_urls.txt
     if data:
         flush_data(data, batch_index)
 
-    # Save the updated visited URLs.
+    # Save the updated visited URLs and pending URLs.
     save_visited(visited_file, visited)
-    # Save any remaining pending URLs.
     save_pending(pending_file, to_visit)
     return count
 
@@ -135,7 +136,8 @@ if __name__ == "__main__":
     ensure_directories()
 
     base_url = "http://uni-bamberg.de/"
-    max_pages = 100
+    # Set max_pages to 0 to scrape the whole website, or any positive integer to limit the pages.
+    max_pages = 0
     visited_file = "input/visited_urls.txt"
     pending_file = "input/pending_urls.txt"
 
