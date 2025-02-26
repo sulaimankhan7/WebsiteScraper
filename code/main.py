@@ -8,6 +8,8 @@ import os
 
 # Define 1GB in bytes
 ONE_GB = 1_073_741_824
+# Define 100GB in bytes
+MAX_TOTAL_SIZE = 100 * ONE_GB
 
 
 def ensure_directories():
@@ -69,6 +71,8 @@ def scrape_website(base_url, max_pages=0, visited_file="input/visited_urls.txt",
 
     If max_pages is set to 0, the scraper runs until no more pending links remain.
     Otherwise, it stops after scraping max_pages pages.
+
+    Now stops when total scraped data size reaches 100GB.
     """
     # Load previously visited URLs and pending URLs.
     visited = load_visited(visited_file)
@@ -81,10 +85,11 @@ def scrape_website(base_url, max_pages=0, visited_file="input/visited_urls.txt",
     data = []  # List to store the scraped data.
     batch_index = 1  # Batch counter for JSON flushing.
     count = 0  # Counter for the number of scraped pages.
+    total_scraped_size = 0  # Total size of scraped data in bytes.
 
-    # Continue scraping while there are URLs to visit and max_pages condition holds.
-    # If max_pages is 0, it will ignore the count check.
-    while to_visit and (max_pages == 0 or count < max_pages):
+    # Continue scraping while there are URLs to visit, the max_pages condition holds,
+    # and the total scraped data size is below MAX_TOTAL_SIZE.
+    while to_visit and (max_pages == 0 or count < max_pages) and total_scraped_size < MAX_TOTAL_SIZE:
         url = to_visit.popleft()
         if url in visited:
             continue
@@ -99,8 +104,14 @@ def scrape_website(base_url, max_pages=0, visited_file="input/visited_urls.txt",
 
             soup = BeautifulSoup(response.text, "html.parser")
             text = soup.get_text(separator=" ", strip=True)
-            data.append({"url": url, "text": text})
+            record = {"url": url, "text": text}
+            record_json = json.dumps(record, ensure_ascii=False)
+            record_size = len(record_json.encode("utf-8"))
+
+            data.append(record)
             count += 1
+            total_scraped_size += record_size
+            print(f"Total Scraped Data Size: {total_scraped_size / ONE_GB:.2f} GB")
 
             # Queue the internal links.
             for link in soup.find_all("a"):
@@ -111,12 +122,17 @@ def scrape_website(base_url, max_pages=0, visited_file="input/visited_urls.txt",
                 if full_url.startswith(base_url) and full_url not in visited and full_url not in to_visit:
                     to_visit.append(full_url)
 
-            # Check if the accumulated data has reached 1GB in size.
-            current_size = len(json.dumps(data, ensure_ascii=False).encode("utf-8"))
-            if current_size >= ONE_GB:
+            # Check if the accumulated data in memory is reaching 1GB in size.
+            current_data_size = len(json.dumps(data, ensure_ascii=False).encode("utf-8"))
+            if current_data_size >= ONE_GB:
                 flush_data(data, batch_index)
                 data = []  # Clear data after flushing.
                 batch_index += 1
+
+            # Stop if we've reached or exceeded the total limit of 100GB.
+            if total_scraped_size >= MAX_TOTAL_SIZE:
+                print("Reached the maximum total scraped size (100GB). Stopping...")
+                break
 
         except Exception as e:
             print(f"Error scraping {url}: {e}")
