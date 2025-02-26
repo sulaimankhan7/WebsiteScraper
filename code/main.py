@@ -6,6 +6,9 @@ from collections import deque
 from datetime import datetime
 import os
 
+# Define 1GB in bytes
+ONE_GB = 1_073_741_824
+
 
 def ensure_directories():
     os.makedirs("input", exist_ok=True)
@@ -16,7 +19,7 @@ def load_visited(file_path):
     """Load visited URLs from a file into a set."""
     visited = set()
     if os.path.exists(file_path):
-        with open(file_path, 'r', encoding="utf-8") as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             for line in f:
                 url = line.strip()
                 if url:
@@ -26,7 +29,7 @@ def load_visited(file_path):
 
 def save_visited(file_path, visited):
     """Save visited URLs to a file (one URL per line)."""
-    with open(file_path, 'w', encoding="utf-8") as f:
+    with open(file_path, "w", encoding="utf-8") as f:
         for url in sorted(visited):
             f.write(url + "\n")
 
@@ -35,7 +38,7 @@ def load_pending(file_path):
     """Load pending URLs from a file into a deque."""
     pending = deque()
     if os.path.exists(file_path):
-        with open(file_path, 'r', encoding="utf-8") as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             for line in f:
                 url = line.strip()
                 if url:
@@ -45,9 +48,19 @@ def load_pending(file_path):
 
 def save_pending(file_path, pending):
     """Save pending URLs to a file (one URL per line)."""
-    with open(file_path, 'w', encoding="utf-8") as f:
+    with open(file_path, "w", encoding="utf-8") as f:
         for url in pending:
             f.write(url + "\n")
+
+
+def flush_data(data, batch_index):
+    """Flush the data into a JSON file and return the filename."""
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    output_filename = f"output/scraped_data_{timestamp}_batch{batch_index}.json"
+    with open(output_filename, "w", encoding="utf-8") as outfile:
+        json.dump(data, outfile, ensure_ascii=False, indent=2)
+    print(f"Flushed {len(data)} records to {output_filename}")
+    return output_filename
 
 
 def scrape_website(base_url, max_pages=100, visited_file="input/visited_urls.txt",
@@ -61,15 +74,15 @@ def scrape_website(base_url, max_pages=100, visited_file="input/visited_urls.txt
     if base_url not in visited and base_url not in to_visit:
         to_visit.append(base_url)
 
-    # List to store output data (scraped results).
-    data = []
-    # Counter for the number of scraped pages.
-    count = 0
+    data = []  # List to store output data (scraped results)
+    batch_index = 1  # Batch counter for JSON flushing
+    count = 0  # Counter for the number of scraped pages
 
     while to_visit and count < max_pages:
         url = to_visit.popleft()
         if url in visited:
             continue
+
         print(f"Scraping: {url}")
         visited.add(url)
         try:
@@ -78,59 +91,53 @@ def scrape_website(base_url, max_pages=100, visited_file="input/visited_urls.txt
                 print(f"Skipping {url} due to response status: {response.status_code}")
                 continue
 
-            # Parse the page.
-            soup = BeautifulSoup(response.text, 'html.parser')
-            # Extract text.
-            text = soup.get_text(separator=' ', strip=True)
-            data.append({'url': url, 'text': text})
+            soup = BeautifulSoup(response.text, "html.parser")
+            text = soup.get_text(separator=" ", strip=True)
+            data.append({"url": url, "text": text})
             count += 1
 
-            # If we've reached the max_pages limit, break out.
+            # If we have reached the max_pages limit, break out.
             if count >= max_pages:
                 break
 
             # Queue the internal links.
-            for link in soup.find_all('a'):
-                href = link.get('href')
+            for link in soup.find_all("a"):
+                href = link.get("href")
                 if not href:
                     continue
                 full_url = urllib.parse.urljoin(url, href)
-                # Check if the link belongs to the same website and is not yet visited or in the pending list.
                 if full_url.startswith(base_url) and full_url not in visited and full_url not in to_visit:
                     to_visit.append(full_url)
+
+            # Check if the accumulated data has reached 1GB in size.
+            current_size = len(json.dumps(data, ensure_ascii=False).encode("utf-8"))
+            if current_size >= ONE_GB:
+                flush_data(data, batch_index)
+                data = []  # Clear data after flushing to file.
+                batch_index += 1
 
         except Exception as e:
             print(f"Error scraping {url}: {e}")
             continue
 
+    # Flush any remaining data even if it hasn't reached 1GB.
+    if data:
+        flush_data(data, batch_index)
+
     # Save the updated visited URLs.
     save_visited(visited_file, visited)
-    # Save the remaining pending URLs to the pending file.
+    # Save any remaining pending URLs.
     save_pending(pending_file, to_visit)
-    return data
+    return count
 
 
 if __name__ == "__main__":
-    # Ensure that input and output directories exist.
     ensure_directories()
 
-    # Website to scrape.
     base_url = "http://uni-bamberg.de/"
-    # Set the maximum number of pages to scrape during this run.
     max_pages = 100
-    # File to store visited URLs.
     visited_file = "input/visited_urls.txt"
-    # File to store pending URLs.
     pending_file = "input/pending_urls.txt"
 
-    scraped_data = scrape_website(base_url, max_pages, visited_file, pending_file)
-
-    # Create a timestamp for the output file name.
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    output_filename = f"output/scraped_data_{timestamp}.json"
-
-    # Save the scraped data to a timestamped JSON file in the output folder.
-    with open(output_filename, "w", encoding="utf-8") as outfile:
-        json.dump(scraped_data, outfile, ensure_ascii=False, indent=2)
-
-    print(f"Scraping completed. Check {output_filename} for output.")
+    total_scraped = scrape_website(base_url, max_pages, visited_file, pending_file)
+    print(f"Scraping completed. Total pages scraped: {total_scraped}.")
