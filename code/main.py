@@ -1,4 +1,3 @@
-
 import requests
 from bs4 import BeautifulSoup
 import json
@@ -6,19 +5,21 @@ import urllib.parse
 from collections import deque
 
 
-def scrape_website(base_url):
+def scrape_website(base_url, max_pages=100):
     # A set to keep track of visited URLs.
     visited = set()
     # A queue for URLs to visit.
     to_visit = deque([base_url])
     # List to store output data.
     data = []
+    # Counter for the number of scraped pages.
+    count = 0
 
-    while to_visit:
+    while to_visit and count < max_pages:
         url = to_visit.popleft()
         if url in visited:
             continue
-        print(f"Scraping: {url}")
+        print(f"Scraping {count}: {url}")
         visited.add(url)
         try:
             response = requests.get(url, timeout=10)
@@ -31,6 +32,11 @@ def scrape_website(base_url):
             # Extract text and clean it up.
             text = soup.get_text(separator=' ', strip=True)
             data.append({'url': url, 'text': text})
+            count += 1
+
+            # If we've reached the max_pages limit, break out of the loop.
+            if count >= max_pages:
+                break
 
             # Find and queue the links on this page.
             for link in soup.find_all('a'):
@@ -53,7 +59,9 @@ def scrape_website(base_url):
 if __name__ == "__main__":
     # Change this to the website you want to scrape.
     base_url = "http://uni-bamberg.de/"
-    scraped_data = scrape_website(base_url)
+    # Set the maximum number of pages to scrape.
+    max_pages = 500
+    scraped_data = scrape_website(base_url, max_pages)
 
     # Save the scraped data to a JSON file.
     with open("scraped_data.json", "w", encoding="utf-8") as outfile:
