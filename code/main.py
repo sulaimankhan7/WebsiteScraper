@@ -89,7 +89,7 @@ def scrape_website(base_url, max_pages=0, visited_file="input/visited_urls.txt",
         if url in visited:
             continue
 
-        print(f"Scraping: {url}")
+        print(f"Scraping: {count} {url}")
         visited.add(url)
         try:
             response = requests.get(url, timeout=10)
