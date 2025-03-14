@@ -8,8 +8,9 @@ import os
 
 # Define 1GB in bytes
 ONE_GB = 1_073_741_824
+HUNDRED_MB = 1000000 * 100
 # Define 100GB in bytes
-MAX_TOTAL_SIZE = 100 * ONE_GB
+MAX_TOTAL_SIZE = 20 * ONE_GB
 
 
 def ensure_directories():
@@ -111,7 +112,7 @@ def scrape_website(base_url, max_pages=0, visited_file="input/visited_urls.txt",
             data.append(record)
             count += 1
             total_scraped_size += record_size
-            print(f"Total Scraped Data Size: {total_scraped_size / ONE_GB:.2f} GB")
+            print(f"Total Scraped Data Size: {total_scraped_size / (HUNDRED_MB / 100):.2f} MB")
 
             # Queue the internal links.
             for link in soup.find_all("a"):
@@ -124,7 +125,7 @@ def scrape_website(base_url, max_pages=0, visited_file="input/visited_urls.txt",
 
             # Check if the accumulated data in memory is reaching 1GB in size.
             current_data_size = len(json.dumps(data, ensure_ascii=False).encode("utf-8"))
-            if current_data_size >= ONE_GB:
+            if current_data_size >= HUNDRED_MB:
                 flush_data(data, batch_index)
                 data = []  # Clear data after flushing.
                 batch_index += 1
