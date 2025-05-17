@@ -123,16 +123,19 @@ def scrape_website(base_url, max_pages=0, visited_file="input/visited_urls.txt",
                 if full_url.startswith(base_url) and full_url not in visited and full_url not in to_visit:
                     to_visit.append(full_url)
 
-            # Check if the accumulated data in memory is reaching 1GB in size.
+            # Flush the data if size reaches threshold.
             current_data_size = len(json.dumps(data, ensure_ascii=False).encode("utf-8"))
             if current_data_size >= HUNDRED_MB:
                 flush_data(data, batch_index)
+                # Save the progress after flushing data
+                save_visited(visited_file, visited)
+                save_pending(pending_file, to_visit)
                 data = []  # Clear data after flushing.
                 batch_index += 1
 
-            # Stop if we've reached or exceeded the total limit of 100GB.
+            # Stop if we've reached or exceeded the total limit.
             if total_scraped_size >= MAX_TOTAL_SIZE:
-                print("Reached the maximum total scraped size (100GB). Stopping...")
+                print("Reached the maximum total scraped size. Stopping...")
                 break
 
         except Exception as e:
