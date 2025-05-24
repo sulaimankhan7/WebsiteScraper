@@ -54,7 +54,7 @@ def save_pending(file_path, pending):
     with open(file_path, "w", encoding="utf-8") as f:
         for url in pending:
             f.write(url + "\n")
-
+from dotenv import dotenv_values
 
 def flush_data(data, batch_index):
     """Flush the data into a JSON file and return the filename."""
