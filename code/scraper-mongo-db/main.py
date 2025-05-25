@@ -2,7 +2,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from web_scraper import WebScraper, logger
-from mongodb_handler import  MongoDBHandler
+from mongodb_handler import MongoDBHandler
+from collections import defaultdict
 
 
 def main():
@@ -16,64 +17,79 @@ def main():
     try:
         # Load or create sitemap
         sitemap_file = "sitemap.json"
-        site_map = scraper.load_sitemap_json(sitemap_file)
+        sitemap_entries = scraper.load_sitemap_json(sitemap_file)
 
-        if not site_map:
+        if not sitemap_entries:
             logger.info("No sitemap found, creating new one...")
             scraper.save_sitemap_json(sitemap_file)
-            site_map = scraper.load_sitemap_json(sitemap_file)
+            sitemap_entries = scraper.load_sitemap_json(sitemap_file)
 
-        if not site_map:
+        if not sitemap_entries:
             logger.error("Could not load sitemap. Exiting.")
             return
 
         # Process pages with threading
-        max_workers = 10  # Adjust based on your needs and server capabilities
+        max_workers = 16  # Adjust based on your needs and server capabilities
         batch_size = 50  # Save in batches for better performance
 
-        scraped_pages = []
+        scraped_pages_by_category = defaultdict(list)
         failed_count = 0
+        total_entries = 0
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all scraping tasks
-            future_to_url = {
-                executor.submit(scraper.scrape_page, entry): entry
-                for entry in site_map
-            }
+            # Submit all scraping tasks - iterate through the dictionary
+            future_to_data = {}
 
-            for future in as_completed(future_to_url):
+            for category, entries in sitemap_entries.items():
+                logger.info(f"Scheduling scraping for category: {category} with {len(entries)} pages")
+                total_entries += len(entries)
+
+                for entry in entries:
+                    future = executor.submit(scraper.scrape_page, entry)
+                    future_to_data[future] = (entry, category)
+
+            for future in as_completed(future_to_data):
                 try:
                     page_data = future.result()
-                    if page_data:
-                        scraped_pages.append(page_data)
+                    entry, category = future_to_data[future]
 
-                        # Save in batches
-                        if len(scraped_pages) >= batch_size:
-                            db_handler.save_pages_batch(scraped_pages)
-                            scraped_pages = []
+                    if page_data:
+                        scraped_pages_by_category[category].append(page_data)
+
+                        # Save in batches when a category reaches the batch size
+                        if len(scraped_pages_by_category[category]) >= batch_size:
+                            db_handler.save_pages_batch(scraped_pages_by_category[category], category)
+                            logger.info(
+                                f"Saved batch of {len(scraped_pages_by_category[category])} pages in category '{category}'")
+                            scraped_pages_by_category[category] = []
                     else:
                         failed_count += 1
 
                 except Exception as e:
                     failed_count += 1
-                    logger.error(f"Error processing page: {e}")
+                    entry, category = future_to_data[future]
+                    # logger.error(f"Error processing page {entry.link} in category '{category}': {e}")
+                    logger.error(f"Error processing page': {e}")
 
-            # Save remaining pages
-            if scraped_pages:
-                db_handler.save_pages_batch(scraped_pages)
+
+            # Save remaining pages for each category
+            for category, pages in scraped_pages_by_category.items():
+                if pages:
+                    db_handler.save_pages_batch(pages, category)
+                    logger.info(f"Saved final batch of {len(pages)} pages in category '{category}'")
 
         # Summary
         total_time = time.time() - start_time
-        total_processed = len(site_map)
-        successful = total_processed - failed_count
+        successful = total_entries - failed_count
 
         logger.info(f"""
         Scraping completed!
-        Total URLs: {total_processed}
+        Total URLs: {total_entries}
         Successful: {successful}
         Failed: {failed_count}
+        Categories: {', '.join(sitemap_entries.keys())}
         Total time: {total_time:.2f} seconds
-        Average time per page: {total_time / total_processed:.2f} seconds
+        Average time per page: {total_time / total_entries:.2f} seconds
         """)
 
     except Exception as e:

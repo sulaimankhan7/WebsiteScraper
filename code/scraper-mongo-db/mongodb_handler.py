@@ -1,10 +1,11 @@
 import pymongo
 from pymongo.errors import PyMongoError
-from typing import List, Optional
-from  model import PageData, ImageData, SitemapEntry
+from typing import List, Optional, Dict
+from model import PageData, ImageData, SitemapEntry
 import logging
 
 logger = logging.getLogger(__name__)
+
 
 class MongoDBHandler:
     def __init__(self, connection_string: str = "mongodb://localhost:27017/",
@@ -32,12 +33,16 @@ class MongoDBHandler:
             logger.error(f"MongoDB connection error: {e}")
             raise
 
-    def save_page(self, page_data: PageData) -> bool:
-        """Save a single page to MongoDB"""
+    def save_page(self, page_data: PageData, category: str = None) -> bool:
+        """Save a single page to MongoDB with category"""
         try:
+            page_dict = page_data.to_dict()
+            if category:
+                page_dict['category'] = category
+
             result = self.collection.update_one(
                 {"_id": page_data.url},
-                {"$set": page_data.to_dict()},
+                {"$set": page_dict},
                 upsert=True
             )
 
@@ -52,30 +57,51 @@ class MongoDBHandler:
             logger.error(f"Error saving page {page_data.url}: {e}")
             return False
 
-    def save_pages_batch(self, pages: List[PageData]) -> int:
-        """Save multiple pages in batch"""
+    def save_pages_batch(self, pages: List[PageData], category: str = None) -> int:
+        """Save multiple pages in batch with category"""
         if not pages:
             return 0
 
         try:
             operations = []
             for page in pages:
+                page_dict = page.to_dict()
+                if category:
+                    page_dict['category'] = category
+
                 operations.append(
                     pymongo.UpdateOne(
                         {"_id": page.url},
-                        {"$set": page.to_dict()},
+                        {"$set": page_dict},
                         upsert=True
                     )
                 )
 
             result = self.collection.bulk_write(operations)
             saved_count = result.upserted_count + result.modified_count
-            logger.info(f"Batch saved {saved_count} pages")
+            logger.info(f"Batch saved {saved_count} pages" + (f" in category '{category}'" if category else ""))
             return saved_count
 
         except PyMongoError as e:
             logger.error(f"Error in batch save: {e}")
             return 0
+
+    def save_pages_by_category(self, pages_by_category: Dict[str, List[PageData]]) -> Dict[str, int]:
+        """Save pages grouped by category"""
+        if not pages_by_category:
+            return {}
+
+        results = {}
+
+        for category, pages in pages_by_category.items():
+            if not pages:
+                continue
+
+            saved = self.save_pages_batch(pages, category)
+            results[category] = saved
+            logger.info(f"Saved {saved} pages in category '{category}'")
+
+        return results
 
     def close(self):
         """Close MongoDB connection"""

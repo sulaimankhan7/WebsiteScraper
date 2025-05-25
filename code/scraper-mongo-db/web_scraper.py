@@ -121,24 +121,27 @@ class WebScraper:
             logger.error(f"Error saving sitemap: {e}")
             raise
 
-    def load_sitemap_json(self, filename: str = "sitemap.json") -> List[SitemapEntry]:
+    def load_sitemap_json(self, filename: str = "sitemap.json") -> dict[str: SitemapEntry]:
         """Load sitemap data from JSON file"""
         logger.info("Loading sitemap from JSON...")
 
         try:
             with open(filename, "r", encoding='utf-8') as f:
-                sitemaps = json.load(f)
+                grouped_data = json.load(f)
 
-            result = [
-                SitemapEntry(
-                    link=entry["link"],
-                    lastmod=datetime.fromisoformat(entry["lastmod"]) if isinstance(entry["lastmod"], str) else entry[
-                        "lastmod"]
-                )
-                for entry in sitemaps
-            ]
+            result = {}
 
-            logger.info(f"Loaded {len(result)} URLs from sitemap.")
+            for segment, entries in grouped_data.items():
+                result[segment] = [
+                    SitemapEntry(
+                        link=entry["link"],
+                        lastmod=datetime.fromisoformat(entry["lastmod"]) if isinstance(entry["lastmod"], str) else
+                        entry["lastmod"]
+                    )
+                    for entry in entries
+                ]
+
+            logger.info(f"Parsed grouped sitemap with {len(result)} segments.")
             return result
 
         except FileNotFoundError:
@@ -249,4 +252,4 @@ class WebScraper:
         segments = path.strip('/').split('/')
         if segments and segments[0]:
             return segments[0]
-        return "root"
+        return "/"
