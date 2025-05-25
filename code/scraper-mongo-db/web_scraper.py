@@ -8,6 +8,9 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import time
 from model import  SitemapEntry, ImageData, PageData
+from dataclasses import asdict, dataclass
+from urllib.parse import urlparse
+from collections import defaultdict
 
 # Configure logging
 logging.basicConfig(
@@ -107,8 +110,10 @@ class WebScraper:
                     continue
 
             # Save to JSON
+            grouped_sitemap_entries = self.group_by_first_path_segment(site_links)
+
             with open(filename, "w", encoding='utf-8') as f:
-                json.dump(site_links, f, default=str, indent=2, ensure_ascii=False)
+                json.dump(grouped_sitemap_entries, f, default=str, indent=2, ensure_ascii=False)
 
             logger.info(f'Sitemap saved with {len(site_links)} URLs.')
 
@@ -191,3 +196,57 @@ class WebScraper:
         except Exception as e:
             logger.error(f"Unexpected error scraping {url}: {e}")
             return None
+
+    def group_by_first_path_segment(self, entries):
+        """
+        Group entries by the first path segment after the domain.
+
+        Args:
+            entries: List of SitemapEntry objects or dictionaries with 'link' key
+
+        Returns:
+            A dictionary with first path segments as keys and lists of entries as values
+        """
+        grouped = defaultdict(list)
+
+        try:
+            for entry in entries:
+                try:
+                    # Check if entry is a dictionary or SitemapEntry object
+                    if isinstance(entry, dict):
+                        if 'link' not in entry:
+                            logger.warning(f"Entry missing 'link' field: {entry}")
+                            continue
+                        link = entry['link']
+                    elif hasattr(entry, 'link'):
+                        link = entry.link
+                    else:
+                        logger.warning(f"Invalid entry type: {type(entry)}, expected SitemapEntry or dict with 'link'")
+                        continue
+
+                    first_segment = self.get_first_path_segment(link)
+                    grouped[first_segment].append(entry)
+
+                except Exception as e:
+                    logger.error(f"Error processing entry {entry}: {str(e)}")
+                    continue
+
+            return grouped
+
+        except Exception as e:
+            logger.error(f"Error in group_by_first_path_segment: {str(e)}")
+            return defaultdict(list)
+
+    @staticmethod
+    def get_first_path_segment(url):
+        # Parse the URL
+        parsed_url = urlparse(url)
+
+        # Get the path
+        path = parsed_url.path
+
+        # Split the path and get the first non-empty segment
+        segments = path.strip('/').split('/')
+        if segments and segments[0]:
+            return segments[0]
+        return "root"
