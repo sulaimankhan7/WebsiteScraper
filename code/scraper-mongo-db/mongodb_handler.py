@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 class MongoDBHandler:
     def __init__(self, connection_string: str = "mongodb://localhost:27017/",
-                 database_name: str = "rag", collection_name: str = "pages"):
+                 database_name: str = "rag2", collection_name: str = "pages"):
         self.connection_string = connection_string
         self.database_name = database_name
         self.collection_name = collection_name

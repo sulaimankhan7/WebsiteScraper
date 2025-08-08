@@ -11,6 +11,7 @@ from model import  SitemapEntry, ImageData, PageData
 from dataclasses import asdict, dataclass
 from urllib.parse import urlparse
 from collections import defaultdict
+from content_filter import UniversityContentFilter
 
 # Configure logging
 logging.basicConfig(
@@ -29,6 +30,7 @@ class WebScraper:
         self.base_url = base_url
         self.timeout = timeout
         self.session = self._create_session()
+        self.content_filter = UniversityContentFilter()  # Use the new content filter
         self.content_strainer = SoupStrainer(id="content-main")
 
     def _create_session(self) -> requests.Session:
@@ -152,7 +154,7 @@ class WebScraper:
             return []
 
     def scrape_page(self, sitemap_entry: SitemapEntry) -> Optional[PageData]:
-        """Scrape a single page"""
+        """Scrape a single page with improved content filtering"""
         url = sitemap_entry.link
         logger.info(f"Scraping: {url}")
 
@@ -160,32 +162,27 @@ class WebScraper:
             response = self.session.get(url, timeout=self.timeout)
             response.raise_for_status()
 
-            soup = BeautifulSoup(
-                markup=response.content,
-                parse_only=self.content_strainer,
-                features="lxml",
-            )
+            # Parse the full page
+            full_soup = BeautifulSoup(response.content, features="lxml")
 
-            # Extract images
-            images = []
-            for img in soup.find_all("img"):
-                src = img.get("src")
-                if src:
-                    # Convert relative URLs to absolute
-                    if src.startswith('/'):
-                        src = self.base_url + src
+            # Use the new content filter to extract main content
+            main_content = self.content_filter.extract_main_content(full_soup)
 
-                    images.append(ImageData(
-                        src=src,
-                        title=img.get("title"),
-                        alt=img.get("alt")
-                    ))
+            if not main_content:
+                logger.warning(f"No main content found for {url}")
+                return None
+
+            # Extract images from main content only
+            images = self._extract_images_from_content(main_content)
+
+            # Get clean text content
+            clean_text = self._get_clean_text(main_content)
 
             # Create PageData object
             page_data = PageData(
                 url=url,
-                content=soup.prettify(),
-                text=soup.get_text("\n", strip=True),
+                content=main_content.prettify(),
+                text=clean_text,
                 images=images,
                 scraped_at=datetime.now()
             )
@@ -199,6 +196,57 @@ class WebScraper:
         except Exception as e:
             logger.error(f"Unexpected error scraping {url}: {e}")
             return None
+
+    def _extract_images_from_content(self, content: BeautifulSoup) -> List[ImageData]:
+        """Extract images only from the main content area"""
+        images = []
+
+        for img in content.find_all("img"):
+            src = img.get("src")
+            if src:
+                # Convert relative URLs to absolute
+                if src.startswith('/'):
+                    src = self.base_url + src
+                elif src.startswith('./'):
+                    src = self.base_url + src[1:]
+                elif not src.startswith(('http://', 'https://')):
+                    src = self.base_url + '/' + src
+
+                # Skip small images (likely icons or decorative)
+                width = img.get('width')
+                height = img.get('height')
+                if width and height:
+                    try:
+                        if int(width) < 50 or int(height) < 50:
+                            continue
+                    except (ValueError, TypeError):
+                        pass
+
+                images.append(ImageData(
+                    src=src,
+                    title=img.get("title"),
+                    alt=img.get("alt")
+                ))
+
+        return images
+
+    def _get_clean_text(self, content: BeautifulSoup) -> str:
+        """Extract clean text with proper formatting"""
+
+        # Add line breaks before certain elements for better text structure
+        for element in content.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'div', 'li']):
+            element.insert(0, '\n')
+
+        # Get text and clean it up
+        text = content.get_text('\n', strip=True)
+
+        # Clean up multiple newlines and spaces
+        import re
+        text = re.sub(r'\n\s*\n\s*\n', '\n\n', text)  # Multiple newlines to double newline
+        text = re.sub(r'[ \t]+', ' ', text)  # Multiple spaces to single space
+        text = re.sub(r'\n[ \t]+', '\n', text)  # Remove spaces after newlines
+
+        return text.strip()
 
     def group_by_first_path_segment(self, entries):
         """
@@ -253,3 +301,4 @@ class WebScraper:
         if segments and segments[0]:
             return segments[0]
         return "/"
+

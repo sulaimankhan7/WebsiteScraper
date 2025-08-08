@@ -4,6 +4,7 @@ from pathlib import Path
 from web_scraper import WebScraper, logger
 from mongodb_handler import MongoDBHandler
 from collections import defaultdict
+from content_validator import ContentQualityValidator, print_validation_report
 
 
 def main():
@@ -13,6 +14,7 @@ def main():
     # Initialize components
     scraper = WebScraper()
     db_handler = MongoDBHandler()
+    validator = ContentQualityValidator()  # Add validator
 
     try:
         # Load or create sitemap
@@ -33,6 +35,7 @@ def main():
         batch_size = 50  # Save in batches for better performance
 
         scraped_pages_by_category = defaultdict(list)
+        all_scraped_pages = []  # For validation
         failed_count = 0
         total_entries = 0
 
@@ -55,6 +58,7 @@ def main():
 
                     if page_data:
                         scraped_pages_by_category[category].append(page_data)
+                        all_scraped_pages.append(page_data)  # Collect for validation
 
                         # Save in batches when a category reaches the batch size
                         if len(scraped_pages_by_category[category]) >= batch_size:
@@ -68,15 +72,19 @@ def main():
                 except Exception as e:
                     failed_count += 1
                     entry, category = future_to_data[future]
-                    # logger.error(f"Error processing page {entry.link} in category '{category}': {e}")
                     logger.error(f"Error processing page': {e}")
-
 
             # Save remaining pages for each category
             for category, pages in scraped_pages_by_category.items():
                 if pages:
                     db_handler.save_pages_batch(pages, category)
                     logger.info(f"Saved final batch of {len(pages)} pages in category '{category}'")
+
+        # Validate content quality
+        if all_scraped_pages:
+            logger.info("Starting content quality validation...")
+            validation_results = validator.validate_batch(all_scraped_pages)
+            print_validation_report(validation_results)
 
         # Summary
         total_time = time.time() - start_time
